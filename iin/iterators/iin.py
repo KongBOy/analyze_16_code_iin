@@ -5,10 +5,11 @@ from edflow.util import retrieve, get_obj_from_str
 from iin.iterators.base import Iterator
 from iin.iterators.ae import sample_fid_callback
 
-
+import pdb
 def loss_callback(root, data_in, data_out, config):
     log = {"scalars": dict()}
-    log["scalars"]["loss"] = np.mean(data_out.labels["loss"])
+    # breakpoint()
+    # log["scalars"]["loss"] = np.mean(data_out.labels["loss"])
     return log
 
 
@@ -80,7 +81,10 @@ class Trainer(Iterator):
 
         def eval_op():
             with torch.no_grad():
-                loss_ = torch.ones(inputs.shape[0])*loss
+                loss_ = torch.ones(inputs.shape[0]).to(device="cuda")  ### ### 改完就可以了1
+                loss_ = loss_*loss   ### 改完就可以了2
+                # loss_ = torch.ones(inputs.shape[0])*loss   ### 原始
+                # loss_ = loss_.to(device="cuda")
                 samples = self.first_stage.decode(self.model.reverse(torch.randn_like(posterior.mode())))
             return {"samples": self.tonp(samples),
                     "labels": {"loss": self.tonp(loss_)}}
@@ -89,9 +93,10 @@ class Trainer(Iterator):
 
     @property
     def callbacks(self):
-        cbs = {"eval_op": {"loss_cb": loss_callback}}
-        cbs["eval_op"]["fid_samples"] = sample_fid_callback
-        return cbs
+        # cbs = {"eval_op": {"loss_cb": loss_callback}}
+        # cbs["eval_op"]["fid_samples"] = sample_fid_callback
+        # return cbs
+        return dict()
 
 
 class FactorTrainer(Trainer):

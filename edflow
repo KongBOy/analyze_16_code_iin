@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+import pdb
+import os
+# directly terminate on broken pipe without throwing exception
+import signal
+# signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+import sys  # noqa
+
+sys.path.append(os.getcwd())  # convenience: load implementations from cwd
+
+import re
+import argparse  # noqa
+import yaml  # noqa
+
+from edflow.main import train, test  # noqa
+from edflow.custom_logging import run, get_logger  # noqa
+from edflow.hooks.checkpoint_hooks.common import get_latest_checkpoint  # noqa
+from edflow.config import parse_unknown_args, update_config
+from edflow.util import retrieve
+
+
+def load_config(base_configs, additional_kwargs):
+    config = dict()
+    if base_configs:
+        for base in base_configs:
+            with open(base) as f:
+                config.update(yaml.full_load(f))
+    update_config(config, additional_kwargs)
+    return config
+
+
+def main(opt, additional_kwargs):
+    # use -p <rundir/configs/config.yaml> as shortcut for
+    # -b <rundir/configs/config.yaml> -p <rundir>
+    ### cmd輸入：python edflow -b configs/mnist_iin.yaml -t 的時候
+    ###     opt：Namespace(base=['configs/mnist_iin.yaml'], checkpoint=None, debug=False, log_level='info', name=None, project=None, retrain=False, train=True)
+    if opt.project and opt.project.endswith(".yaml"):  ### 沒-p不會走這裡
+        extra_base = opt.project
+        project = re.sub("/configs/.+\.yaml", "", opt.project)
+        opt.project = project
+        if opt.base:
+            opt.base = [extra_base]+opt.base
+        else:
+            opt.base = [extra_base]
+    config = load_config(opt.base, additional_kwargs) ### 跳這邊，去base指定的.yaml 讀出 所有設定
+    ### config：我有獨立記出來，其實就 configs/mnist_iin.yaml 讀成dict 的模式囉
+    if not "model" in config: ### 'model': 'iin.models.ae.Model'，所以跳過這個if囉
+        config["model"] = "edflow.util.NoModel"
+
+    run_kwargs = {
+        "git": retrieve(config, "integrations/git",
+                        default=False),
+        "log_level": opt.log_level
+    }
+    # Project manager: use existing project or set up new project
+    # breakpoint()
+    if opt.project is not None: ### 沒有-p所以這個if跳過囉~~
+        run.init(run_dir=opt.project, postfix=opt.name, **run_kwargs)
+    else: ### 走這邊~~~
+        # Determine code root: If not specified, determine based on import path
+        # of iterator
+        if "code_root" in config:   ### 沒有~~跳過囉~~
+            code_root = config["code_root"]  
+        else: ### 走這邊
+            impl = config.get("iterator", "") ### "iin.iterators.iin.Trainer"
+            path = impl.split(".")            ### ['iin', 'iterators', 'iin', 'Trainer']
+            # if it looks like a package path, take its root as the code dir
+            # otherwise take cwd
+            if len(path) > 0:
+                code_root = path[0] ### 'iin'
+            else:
+                code_root = "."
+
+        # command line takes precedence over "experiment_name" from
+        # config
+        name = config.get("experiment_name", None) ### 'mnist_iin'
+        if opt.name is not None:  ### 沒有 opt.name喔～ 跳過
+            name = opt.name
+        run.init(log_dir="logs", code_root=code_root, postfix=name,**run_kwargs) ### 去 C:\Users\TKU\Anaconda3\envs\pytorch\Lib\site-packages\edflow 找 custom_logging.py 才找的到喔！
+
+    # Logger
+    logger = get_logger("main")
+
+    if opt.train:
+        if opt.checkpoint is not None:
+            checkpoint = opt.checkpoint
+        elif opt.project is not None:
+            checkpoint = get_latest_checkpoint(run.checkpoints)
+        else:
+            checkpoint = None
+
+        logger.info("Training config:\n{}".format(yaml.dump(config)))
+        train(config, run.train, checkpoint, opt.retrain, debug=opt.debug)
+    else:
+        disable_eval_all = disable_eval_forever = False
+        if opt.checkpoint is not None:
+            checkpoint = opt.checkpoint
+            disable_eval_all = disable_eval_forever = True
+        elif opt.project is not None:
+            if any([config.get("eval_all", False), config.get("eval_forever", False)]):
+                checkpoint = None
+            else:
+                checkpoint = get_latest_checkpoint(run.checkpoints)
+                disable_eval_all = disable_eval_forever = True
+        else:
+            checkpoint = None
+
+        if disable_eval_all:
+            config.update({"eval_all": False})
+            logger.info(
+                "{} was disabled because you specified a checkpoint.".format("eval_all")
+            )
+
+        if disable_eval_forever:
+            config.update({"eval_forever": False})
+            logger.info(
+                "{} was disabled because you specified a checkpoint.".format(
+                    "eval_forever"
+                )
+            )
+
+        logger.info(
+            "Evaluation config:\n{}".format(yaml.dump(config))
+        )
+        test(config, run.latest_eval, checkpoint, debug=opt.debug)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-n", "--name", metavar="description", help="postfix of log directory."
+    )
+    parser.add_argument(
+        "-b",
+        "--base",
+        nargs="*",
+        metavar="base_config.yaml",
+        help="paths to base configs. Loaded from left-to-right. "
+        "Parameters can be overwritten or added with command-line options of the form `--key value`.",
+        default=None,
+    )
+    parser.add_argument(
+        "-t", "--train", action="store_true", help="run in training mode"
+    )
+    parser.add_argument("-p", "--project", help="path to existing project")
+    parser.add_argument("-c", "--checkpoint", help="path to existing checkpoint")
+    parser.add_argument(
+        "-r", "--retrain", action="store_true", help="reset global step"
+    )
+    parser.add_argument(
+        "-l",
+        "--log_level",
+        metavar="LEVEL",
+        type=str,
+        choices=["warn", "info", "debug", "critical"],
+        default="info",
+        help="set the logging level.",
+    )
+    parser.add_argument("-d", "--debug", action="store_true", help="enable post-mortem debugging")
+
+    opt, unknown = parser.parse_known_args()
+    additional_kwargs = parse_unknown_args(unknown)
+
+    if not opt.debug:   ### 這裡進入
+        main(opt, additional_kwargs)
+    else:
+        try:
+            import pudb as debugger
+        except ImportError:
+            import pdb as debugger
+        try:
+            main(opt, additional_kwargs)
+        except Exception:
+            debugger.post_mortem()
+            raise
+        finally:
+            # move debug runs to debug subdirectory to easily delete them.
+            # directly removing it is problematic because .nfsXXX files are
+            # created if open files are left on a nfs system, which prevents us
+            # from deleting the directory.
+            if not opt.project:
+                # newly created debug project
+                dst, name = os.path.split(run.root)
+                dst = os.path.join(dst, "debug_runs", name)
+                os.makedirs(os.path.split(dst)[0], exist_ok=True)
+                os.rename(run.root, dst)
+            elif opt.project and not opt.train:
+                # debugging eval in existing project -> keep project but delete eval
+                dst, name = os.path.split(run.root)
+                dst = os.path.join(dst, "debug_runs", name)
+                rel_eval = os.path.relpath(run.latest_eval, start=run.root)
+                dst = os.path.join(dst, rel_eval)
+                os.makedirs(os.path.split(dst)[0], exist_ok=True)
+                os.rename(run.latest_eval, dst)

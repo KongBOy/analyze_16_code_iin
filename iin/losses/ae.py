@@ -103,7 +103,7 @@ class LossPND(nn.Module):
         self.calibrate = retrieve(config, "Loss/calibrate", default=False)
         # output log variance
         self.logvar_init = retrieve(config, "Loss/logvar_init", default=0.0)
-        self.logvar = nn.Parameter(torch.ones(size=())*self.logvar_init)
+        self.logvar = nn.Parameter(torch.ones(size=()) * self.logvar_init)
         # discriminator
         self.discriminator_weight = retrieve(config, "Loss/discriminator_weight", default=1.0)
         disc_nc_in = retrieve(config, "Loss/disc_in_channels", default=3)

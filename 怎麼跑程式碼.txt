@@ -1,0 +1,60 @@
+去 https://github.com/pesser/edflow
+切到 master 分支
+因為clone會失敗，所以用下載zip方式下載， 
+解壓縮
+到解壓的資料夾裡的 edflow資料夾
+開terminal 下 pip install . 
+##########################################################
+跑 explore.py：
+	pip install streamlit, albumentations
+	
+	configs 資料夾 裡面 的 .yaml 要 加入 dataset，譬如：
+		dataset:
+			iin.data.MNISTTrain
+			
+			
+##########################################################
+custom_logging.py
+	os.ttyname
+		129~148
+		333~334
+	os.getpgrp
+		150
+	
+##########################################################
+https://github.com/pesser/PerceptualSimilarity
+https://github.com/pesser/fid
+clone下來，把裡面的資料夾複製一份出來 和 edflow 放同個資料夾
+
+iterators/iin.py 的 
+第82行左右 要把 loss 丟進去 cuda 才可以跑成功
+	# loss_ = torch.ones(inputs.shape[0])*loss   ### 原始
+							改成
+	loss_ = torch.ones(inputs.shape[0]).to(device="cuda")  ### ### 改完就可以了1
+	loss_ = loss_*loss   ### 改完就可以了2
+	
+第96行左右 call back 會失敗，所以暫時先 return 空dict
+
+套件裡的 eval/pipline 的 save_output 要小改
+
+scikit-image===0.17.2
+
+
+python edflow -b configs/mnist_ae.yaml -t
+
+python edflow -b configs/cmnist_clf.yaml -t
+
+python edflow -b configs/mnist_iin.yaml -t
+
+python edflow -b configs/cmnist_diin.yaml -t
+
+	-b：設定檔
+	-t：訓練模式
+	-r：讀取上次紀錄繼續訓練
+
+python edflow -p logs/2020-04-28T10-12-18_cmnist_diin/configs/train_2020-04-28T10-12-28.yaml -c logs/2020-04-28T10-12-18_cmnist_diin/train/checkpoints/model-45600.ckpt
+	-p：eval時用的project
+	-c：eval實用的checkpoint
+	
+	-l：log_level
+	-d：debug模式

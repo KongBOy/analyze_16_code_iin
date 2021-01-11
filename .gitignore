@@ -1,3 +1,5 @@
 /fid_stats
 /logs
 /wandb
+
+*__pycache__*
